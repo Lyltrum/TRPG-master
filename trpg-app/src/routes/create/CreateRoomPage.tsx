@@ -15,9 +15,16 @@ export default function CreateRoomPage() {
   const nickname = useAuthStore((s) => s.nickname)
   const setRoomIdentity = useRoomStore((s) => s.setRoomIdentity)
   const setStoreModuleId = useRoomStore((s) => s.setModuleId)
-  const [roomName, setRoomName] = useState('')
-  const [roomCode, setRoomCode] = useState('')
-  const [maxPlayers, setMaxPlayers] = useState(4)
+  // ★ 房间名/房间号/最大人数存进 game-store（不是局部 useState）——这几个
+  // 字段要在"去 /games 选游戏再回来"、"下一页点返回"这类导航之间存活，局部
+  // state 在组件卸载重挂载时会被清空，这正是之前那个 bug 的根因。
+  const roomName = useGameStore((s) => s.roomNameDraft)
+  const setRoomName = useGameStore((s) => s.setRoomNameDraft)
+  const roomCode = useGameStore((s) => s.roomCodeDraft)
+  const setRoomCode = useGameStore((s) => s.setRoomCodeDraft)
+  const maxPlayers = useGameStore((s) => s.maxPlayersDraft)
+  const setMaxPlayers = useGameStore((s) => s.setMaxPlayersDraft)
+  const clearRoomDraft = useGameStore((s) => s.clearRoomDraft)
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
 
@@ -39,6 +46,7 @@ export default function CreateRoomPage() {
       await selectModule(room.roomId, modules[0].id)
       setRoomIdentity(room)
       setStoreModuleId(modules[0].id)
+      clearRoomDraft()
       navigate('/character')
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : '创建房间失败')
