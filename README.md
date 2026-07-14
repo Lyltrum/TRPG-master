@@ -38,6 +38,10 @@ uv run uvicorn server.main:app --reload    # 启动开发服务器（默认 http
 ```bash
 cd trpg-app
 npm install
-npm run dev           # 默认 http://localhost:9877，需要后端(8000)同时跑着
+npm run dev           # 默认 http://localhost:9877
 ```
+
+**默认是 mock 模式**：不需要后端/数据库，`npm run dev` 直接能跑，注册登录随便填。所有请求都走 `trpg-app/src/mocks/`（假 REST 路由 + 假 WebSocket），页面右上角会有一个「MOCK 模式」小标签提醒。要接真实后端时，在 `trpg-app/.env` 里加一行 `VITE_USE_MOCK=false`（此时才需要后端(8000)同时跑着）。
+
+`frontend-mock-design` 分支就是专门在 mock 模式下做纯前端界面设计用的，改界面不需要碰后端代码。
 

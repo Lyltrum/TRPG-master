@@ -1,4 +1,18 @@
-// HTTP / WebSocket 客户端封装 —— 真实对接后端（2026-07-13 起不再是 mock）。
+// HTTP / WebSocket 客户端封装。
+// VITE_USE_MOCK 默认开启：不接真实后端/数据库，全部走 mocks/ 下的假实现，方便纯前端改界面；
+// 设成 'false' 才切回真实后端（2026-07-13 起对接过的那一套）。
+
+import { ApiError } from './api-client-error'
+import { mockApiRequest } from '../mocks/mock-api'
+import {
+  mockConnectWebSocket,
+  mockWaitForWsOpen,
+  mockDisconnectWebSocket,
+  mockSendWsMessage,
+  mockOnWsMessage,
+} from '../mocks/mock-ws'
+
+export const USE_MOCK = (import.meta.env.VITE_USE_MOCK ?? 'true') !== 'false'
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 const WS_BASE_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000'
@@ -24,15 +38,7 @@ export function getAuthToken(): string | null {
   return authToken
 }
 
-export class ApiError extends Error {
-  status: number
-  body: unknown
-  constructor(status: number, body: unknown) {
-    super(`API Error ${status}: ${JSON.stringify(body)}`)
-    this.status = status
-    this.body = body
-  }
-}
+export { ApiError }
 
 // 把 ApiError/网络错误翻译成用户能看懂的提示——不要把原始 JSON/浏览器报错直接甩给用户。
 export function friendlyErrorMessage(err: unknown, fallback = '操作失败，请稍后重试'): string {
@@ -56,6 +62,10 @@ export async function apiRequest<T>(
   path: string,
   options: RequestOptions = {}
 ): Promise<T> {
+  if (USE_MOCK) {
+    return mockApiRequest<T>(path, options)
+  }
+
   const { method = 'GET', body, headers = {} } = options
 
   const requestHeaders: Record<string, string> = {
@@ -100,11 +110,14 @@ type WsHandler = (envelope: { type: string; payload: unknown }) => void
 const wsHandlers = new Set<WsHandler>()
 
 export function onWsMessage(handler: WsHandler): () => void {
+  if (USE_MOCK) return mockOnWsMessage(handler)
   wsHandlers.add(handler)
   return () => wsHandlers.delete(handler)
 }
 
 export function connectWebSocket(roomId: string): WebSocket {
+  if (USE_MOCK) return mockConnectWebSocket(roomId)
+
   if (ws && wsRoomId === roomId && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
     return ws
   }
@@ -128,6 +141,8 @@ export function connectWebSocket(roomId: string): WebSocket {
 }
 
 export function waitForWsOpen(socket: WebSocket): Promise<void> {
+  if (USE_MOCK) return mockWaitForWsOpen()
+
   if (socket.readyState === WebSocket.OPEN) return Promise.resolve()
   return new Promise((resolve, reject) => {
     socket.addEventListener('open', () => resolve(), { once: true })
@@ -136,6 +151,8 @@ export function waitForWsOpen(socket: WebSocket): Promise<void> {
 }
 
 export function disconnectWebSocket() {
+  if (USE_MOCK) return mockDisconnectWebSocket()
+
   if (ws) {
     ws.close()
     ws = null
@@ -144,6 +161,8 @@ export function disconnectWebSocket() {
 }
 
 export function sendWsMessage(type: string, playerId: string, payload: unknown) {
+  if (USE_MOCK) return mockSendWsMessage(type, playerId, payload)
+
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type, playerId, payload }))
   } else {
