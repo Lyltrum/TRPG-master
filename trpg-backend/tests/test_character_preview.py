@@ -49,10 +49,11 @@ async def test_preview_returns_authoritative_compute_result(client: AsyncClient)
         PREVIEW_URL,
         json={
             "attributes": ATTRS,
-            "occupationId": 1,  # 会计师，skillPointsFormula="EDU*4"
+            "occupationId": 1,  # 会计师，skillPointsFormula="EDU*4"，信用区间 [30,70]
             # credit-rating（PR #85 review #4 起是一条真正的技能，见
-            # coc7_content.py）落在会计师信用区间 [30,70] 内，不计入职业/兴趣
-            # 预算，所以下面两个断言的 spent/remaining 不受影响。
+            # coc7_content.py）按 COC7 官方裁定分账：下限 30 点算职业点负担，
+            # 超出下限的 20 点（50-30）算兴趣点负担，所以下面两个断言的
+            # spent/remaining 都要把这部分算进去。
             "skills": {"accounting": 55, "law": 55, "credit-rating": 50},
         },
         headers=bearer(session["token"]),
@@ -64,8 +65,8 @@ async def test_preview_returns_authoritative_compute_result(client: AsyncClient)
     assert data["derivedStats"]["HP"] == 10
     assert data["derivedStats"]["SAN"] == 50
 
-    assert data["occupationSkillPoints"] == {"budget": 200, "spent": 100, "remaining": 100}
-    assert data["interestSkillPoints"] == {"budget": 100, "spent": 0, "remaining": 100}
+    assert data["occupationSkillPoints"] == {"budget": 200, "spent": 130, "remaining": 70}
+    assert data["interestSkillPoints"] == {"budget": 100, "spent": 20, "remaining": 80}
 
     accounting_view = next(s for s in data["skillView"] if s["id"] == "accounting")
     assert accounting_view == {

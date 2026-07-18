@@ -290,13 +290,21 @@ export default function CharacterPage() {
     setInterestAlloc(out)
   }, [ruleset, existingCharacter])
 
+  // 信用评级按 COC7 官方裁定分账（跟后端 coc7_rules._compute 的记账口径
+  // 保持一致）：下限（creditMin）那部分点数算职业点负担，超出下限的部分算
+  // 兴趣点负担。两条预算 bar 的"已花"必须把这部分算进去，否则会出现前端
+  // bar 看着没花满、后端却因为信用挤占了额度而拒绝的情况。
   const occPointsSpent = useMemo(() => {
-    return occSkillIds.reduce((sum, id) => sum + ((skillAlloc[id] || 0) - (interestAlloc[id] || 0)), 0)
-  }, [occSkillIds, skillAlloc, interestAlloc])
+    const skillsSpent = occSkillIds.reduce((sum, id) => sum + ((skillAlloc[id] || 0) - (interestAlloc[id] || 0)), 0)
+    return skillsSpent + (selectedOcc ? selectedOcc.creditMin : 0)
+  }, [occSkillIds, skillAlloc, interestAlloc, selectedOcc])
 
   const interestPointsSpent = useMemo(() => {
-    return Object.values(interestAlloc).reduce((sum, pts) => sum + pts, 0)
-  }, [interestAlloc])
+    const skillsSpent = Object.values(interestAlloc).reduce((sum, pts) => sum + pts, 0)
+    const creditValue = skillAlloc['credit-rating'] ?? selectedOcc?.creditMin ?? 0
+    const creditExcess = selectedOcc ? Math.max(0, creditValue - selectedOcc.creditMin) : 0
+    return skillsSpent + creditExcess
+  }, [interestAlloc, skillAlloc, selectedOcc])
 
   const derived = useMemo(() => normalizeDerivedStats(preview?.derivedStats), [preview])
 

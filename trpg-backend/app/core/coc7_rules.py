@@ -253,7 +253,6 @@ def _compute(
 
     occupation_spent = 0
     interest_spent = 0
-    credit_spent = 0
     skill_view: list[SkillView] = []
 
     # 遍历技能表里的全部技能（不只是草稿里提到的那些），这样 `compute_preview`
@@ -287,9 +286,15 @@ def _compute(
 
         effective_allocated = max(allocated, 0)
         if is_credit:
-            # 信用评级的加点可以用职业池或兴趣池里的任意点数（计入 total_spent
-            # 竞争总预算），不单独占用某一个池子的预算。
-            credit_spent += effective_allocated
+            # 信用评级按 COC7 官方裁定分账：下限（credit_min）那部分点数视为
+            # 职业点负担，超出下限的部分才算兴趣点负担；范围校验见下方
+            # CREDIT_OUT_OF_RANGE（这里不重复判断，只管记账）。未选职业时没有
+            # 区间可言，全部点数按兴趣点算。
+            if occupation is not None:
+                occupation_spent += occupation.credit_min
+                interest_spent += max(0, current - occupation.credit_min)
+            else:
+                interest_spent += max(0, current)
         elif spec.id in occupation_skill_ids:
             occupation_spent += effective_allocated
         else:
@@ -319,7 +324,7 @@ def _compute(
             )
         )
 
-    total_spent = occupation_spent + interest_spent + credit_spent
+    total_spent = occupation_spent + interest_spent
     total_budget = occupation_budget + interest_budget
     if total_spent > total_budget:
         issues.append(
