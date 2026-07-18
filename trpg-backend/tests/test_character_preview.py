@@ -50,8 +50,10 @@ async def test_preview_returns_authoritative_compute_result(client: AsyncClient)
         json={
             "attributes": ATTRS,
             "occupationId": 1,  # 会计师，skillPointsFormula="EDU*4"
-            "skills": {"accounting": 55, "law": 55},
-            "creditRating": 50,
+            # credit-rating（PR #85 review #4 起是一条真正的技能，见
+            # coc7_content.py）落在会计师信用区间 [30,70] 内，不计入职业/兴趣
+            # 预算，所以下面两个断言的 spent/remaining 不受影响。
+            "skills": {"accounting": 55, "law": 55, "credit-rating": 50},
         },
         headers=bearer(session["token"]),
     )

@@ -74,7 +74,6 @@ export interface CharacterPreviewRequest {
   skills?: {
     [k: string]: number;
   };
-  creditRating?: number | null;
 }
 
 /**

@@ -27,10 +27,12 @@ def test_derived_stats_formulas() -> None:
 
 
 def test_derived_stats_move_small_and_large() -> None:
+    # COC7 规则：STR/DEX 都小于 SIZ（体格相对弱小）MOV=7；都大于 SIZ（体格
+    # 相对高大灵活）MOV=9（PR #85 review #2：之前这两个分支的返回值是反的）。
     small = compute_derived_stats({**ATTRS, "STR": 30, "DEX": 30, "SIZ": 60})
-    assert small["MOV"] == 9
+    assert small["MOV"] == 7
     large = compute_derived_stats({**ATTRS, "STR": 80, "DEX": 80, "SIZ": 40})
-    assert large["MOV"] == 7
+    assert large["MOV"] == 9
 
 
 def test_damage_bonus_build_table() -> None:
@@ -75,58 +77,142 @@ def test_valid_card_has_empty_validation_report() -> None:
         "law": 55,
         "library-use": 70,
         "listen": 70,
-        "dodge": 75,  # 非职业技能，DEX/2=25 基础值
-        "occult": 55,  # 非职业技能
+        "dodge": 50,  # 非职业技能，DEX/2=25 基础值，分配 25 点
+        "occult": 30,  # 非职业技能，分配 25 点
+        "credit-rating": 50,  # 会计师信用区间 [30,70]，走总预算池（见下方专项测试）
     }
-    result = compute_preview(ATTRS, ACCOUNTANT_ID, skills, credit_rating=50)
+    result = compute_preview(ATTRS, ACCOUNTANT_ID, skills)
 
     assert result.validation == []
     assert result.occupation_skill_points == SkillPointsBudget(budget=200, spent=200, remaining=0)
-    assert result.interest_skill_points == SkillPointsBudget(budget=100, spent=100, remaining=0)
-    assert len(result.skill_view) == 76 + 3  # 见 coc7_content 补齐的 3 条
+    assert result.interest_skill_points == SkillPointsBudget(budget=100, spent=50, remaining=50)
+    assert len(result.skill_view) == 76 + 3 + 1  # +3 悬空引用补齐 +1 信用评级
 
     # complete_character 用的是按名字查职业的版本，结果应该一致
-    assert validate_character(ATTRS, ACCOUNTANT_NAME, skills, credit_rating=50) == []
+    assert validate_character(ATTRS, ACCOUNTANT_NAME, skills) == []
 
 
 def test_occupation_points_exceeded_alone() -> None:
-    skills = {"accounting": 99, "law": 99, "library-use": 99, "persuade": 99}
+    skills = {
+        "accounting": 99,
+        "law": 99,
+        "library-use": 99,
+        "persuade": 99,
+        "credit-rating": 50,  # 避免信用未填触发 CREDIT_OUT_OF_RANGE 掩盖了本测试要验的错误
+    }
     issues = validate_character(ATTRS, ACCOUNTANT_NAME, skills)
     codes = [issue.code for issue in issues]
     assert codes == ["OCCUPATION_POINTS_EXCEEDED"]
 
 
 def test_interest_points_exceeded_alone() -> None:
-    skills = {"dodge": 95, "occult": 95}
+    skills = {"dodge": 95, "occult": 95, "credit-rating": 50}
     issues = validate_character(ATTRS, ACCOUNTANT_NAME, skills)
     codes = [issue.code for issue in issues]
     assert codes == ["INTEREST_POINTS_EXCEEDED"]
 
 
 def test_skill_above_cap_alone() -> None:
-    skills = {"spot-hidden": 105}
+    skills = {"spot-hidden": 105, "credit-rating": 50}
     issues = validate_character(ATTRS, ACCOUNTANT_NAME, skills)
     codes = [issue.code for issue in issues]
     assert codes == ["SKILL_ABOVE_CAP"]
 
 
 def test_skill_below_base_alone() -> None:
-    skills = {"accounting": 0}
+    skills = {"accounting": 0, "credit-rating": 50}
     issues = validate_character(ATTRS, ACCOUNTANT_NAME, skills)
     codes = [issue.code for issue in issues]
     assert codes == ["SKILL_BELOW_BASE"]
 
 
-def test_credit_out_of_range_alone() -> None:
-    issues = validate_character(ATTRS, ACCOUNTANT_NAME, {}, credit_rating=999)
+def test_credit_in_range_passes() -> None:
+    # 会计师信用区间 [30,70]，50 在区间内，单独看不应该产出任何校验项。
+    issues = validate_character(ATTRS, ACCOUNTANT_NAME, {"credit-rating": 50})
+    assert issues == []
+
+
+def test_credit_missing_defaults_to_zero_and_is_rejected() -> None:
+    # 不传信用评级时 current = base(0)，等价于交了 0 分，落在会计师区间
+    # [30,70] 之外——这就是"必填"的实现方式。
+    issues = validate_character(ATTRS, ACCOUNTANT_NAME, {})
     codes = [issue.code for issue in issues]
     assert codes == ["CREDIT_OUT_OF_RANGE"]
 
 
+def test_credit_out_of_range_alone() -> None:
+    issues = validate_character(ATTRS, ACCOUNTANT_NAME, {"credit-rating": 99})
+    codes = [issue.code for issue in issues]
+    assert codes == ["CREDIT_OUT_OF_RANGE"]
+
+
+def test_credit_not_capped_at_99_and_skips_below_base_check() -> None:
+    # 信用评级不走常规的「不能低于基础值/不能超过 99」检查，改用职业信用区间——
+    # 这里用一个超过 99 的值验证它不会被误判成 SKILL_ABOVE_CAP（虽然仍会因为
+    # 超出会计师的区间 [30,70] 被 CREDIT_OUT_OF_RANGE 拦下）。
+    issues = validate_character(ATTRS, ACCOUNTANT_NAME, {"credit-rating": 150})
+    codes = [issue.code for issue in issues]
+    assert codes == ["CREDIT_OUT_OF_RANGE"]
+
+
+def test_credit_points_excluded_from_occupation_and_interest_spent() -> None:
+    # 信用评级不是职业技能表里的技能，加点不应该被计进 occupation_spent 或
+    # interest_spent 的任何一个——它只竞争 total_spent 这个总池子。
+    result = compute_preview(ATTRS, ACCOUNTANT_ID, {"credit-rating": 50})
+    assert result.occupation_skill_points.spent == 0
+    assert result.interest_skill_points.spent == 0
+    assert result.validation == []
+
+
+def test_credit_points_do_not_count_against_interest_budget() -> None:
+    # 兴趣点数（预算 100）先花在两个非职业技能上正好用满，再额外给信用评级
+    # 分配 50 点——如果信用被错误地并入 interest_spent，这里会多算出 50 点
+    # 误报 INTEREST_POINTS_EXCEEDED；正确实现应该完全不受影响。
+    skills = {
+        "dodge": 99,  # 非职业技能，base 25，分配 74 点
+        "occult": 31,  # 非职业技能，base 5，分配 26 点
+        "credit-rating": 50,  # 会计师信用区间 [30,70]，从总预算池另计
+    }
+    issues = validate_character(ATTRS, ACCOUNTANT_NAME, skills)
+    assert issues == []
+
+
 def test_unknown_skill_alone() -> None:
-    issues = validate_character(ATTRS, ACCOUNTANT_NAME, {"totally-fake-skill": 50})
+    issues = validate_character(
+        ATTRS, ACCOUNTANT_NAME, {"totally-fake-skill": 50, "credit-rating": 50}
+    )
     codes = [issue.code for issue in issues]
     assert codes == ["UNKNOWN_SKILL"]
+
+
+def test_invalid_attributes_missing_key_rejected() -> None:
+    attrs = {k: v for k, v in ATTRS.items() if k != "EDU"}
+    issues = validate_character(attrs, ACCOUNTANT_NAME, {})
+    codes = [issue.code for issue in issues]
+    assert codes == ["INVALID_ATTRIBUTES"]
+
+
+def test_invalid_attributes_extra_key_rejected() -> None:
+    attrs = {**ATTRS, "LUK": 50}
+    issues = validate_character(attrs, ACCOUNTANT_NAME, {})
+    codes = [issue.code for issue in issues]
+    assert codes == ["INVALID_ATTRIBUTES"]
+
+
+def test_invalid_attributes_out_of_range_rejected() -> None:
+    attrs = {**ATTRS, "INT": 999}
+    issues = validate_character(attrs, ACCOUNTANT_NAME, {})
+    codes = [issue.code for issue in issues]
+    assert codes == ["INVALID_ATTRIBUTES"]
+
+
+def test_invalid_attributes_short_circuits_and_skips_other_checks() -> None:
+    # 属性不合法时应该直接返回，不会借着这份脏数据继续算出一堆其他校验项
+    # （比如信用评级缺失本来也会报错，但不应该跟 INVALID_ATTRIBUTES 一起出现）。
+    attrs = {**ATTRS, "STR": 0}
+    issues = validate_character(attrs, ACCOUNTANT_NAME, {})
+    codes = [issue.code for issue in issues]
+    assert codes == ["INVALID_ATTRIBUTES"]
 
 
 def test_occupation_not_found_by_id_and_by_name() -> None:

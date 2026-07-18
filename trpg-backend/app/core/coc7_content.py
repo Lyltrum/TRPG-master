@@ -10,7 +10,8 @@
   (2d6+6)*5。
 - 技能：`ALL_SKILLS`，前端原样照抄 76 条；issue #84 S2 发现有 3 个职业引用了
   技能表里不存在的 id（navigate/carpentry/illusion，移植时的悬空引用），
-  补齐后共 79 条，跟 COC7 规则书常说的"79 项"数字一致纯属巧合。
+  补齐后共 79 条，跟 COC7 规则书常说的"79 项"数字一致纯属巧合；PR #85 review
+  又补了信用评级（credit-rating）这条一直缺失的技能，共 80 条。
 - 职业：`ALL_OCCUPATIONS`，实际 30 个（同样如实照抄，不是 32 个）。前端的
   `icon` 字段是纯 UI 展示用的 emoji，不属于规则数据，未移植。
 """
@@ -100,6 +101,12 @@ COC7_SKILLS: list[SkillSpec] = [
     SkillSpec(id="persuade", name="说服", name_en="Persuade", base=10, category="social"),
     SkillSpec(id="psychology", name="心理学", name_en="Psychology", base=10, category="social"),
     SkillSpec(id="disguise", name="乔装", name_en="Disguise", base=5, category="social"),
+    # PR #85 review #4：信用评级本来是校验逻辑里的孤立参数（没有对应技能、
+    # complete 从不传），补成一条真正的技能——`_compute` 里会特殊处理它
+    # （用职业信用区间校验，不套常规上限/加点池）。
+    SkillSpec(
+        id="credit-rating", name="信用评级", name_en="Credit Rating", base=0, category="social"
+    ),
     SkillSpec(id="accounting", name="会计", name_en="Accounting", base=5, category="knowledge"),
     SkillSpec(
         id="anthropology", name="人类学", name_en="Anthropology", base=1, category="knowledge"

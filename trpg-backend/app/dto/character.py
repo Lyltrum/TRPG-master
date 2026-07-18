@@ -100,7 +100,6 @@ class CharacterPreviewRequest(CamelModel):
     attributes: dict[str, int]
     occupation_id: int | None = None
     skills: dict[str, int] = Field(default_factory=dict)
-    credit_rating: int | None = None
 
 
 class SkillPointsBudgetView(CamelModel):

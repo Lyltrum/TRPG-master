@@ -18,7 +18,9 @@ BUILT_CHARACTER = {
     # 私家侦探（occupation id=16）的两项职业技能，用真实技能 id 键控、分配在
     # 职业技能点预算内（EDU*2+STR*2=80*2+50*2=260）——issue #84 S2 起
     # complete 会用 coc7_rules 权威校验，键必须是技能表里的 id 不是技能名。
-    "skills": {"law": 55, "spot-hidden": 75},
+    # credit-rating（信用评级，PR #85 review #4 新增为一条真正的技能）落在
+    # 私家侦探信用区间 [9,40] 内，否则 complete 会被 CREDIT_OUT_OF_RANGE 拒。
+    "skills": {"law": 55, "spot-hidden": 75, "credit-rating": 25},
     "equipment": [{"name": "左轮手枪"}, {"name": "手电筒"}],
     "occupation": "私家侦探",
     "background": "曾是警察",

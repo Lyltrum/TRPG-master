@@ -11,7 +11,12 @@ from dataclasses import asdict
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.coc7_rules import ValidationIssue, compute_preview, validate_character
+from app.core.coc7_rules import (
+    ValidationIssue,
+    compute_derived_stats,
+    compute_preview,
+    validate_character,
+)
 from app.core.errors import not_implemented
 from app.dto.character import (
     CharacterComputeResult,
@@ -122,6 +127,10 @@ async def complete_character(
     if issues:
         raise CharacterInvalidError(issues)
 
+    # PR #85 review #3：校验通过后属性一定合法，衍生值改成服务端权威重算
+    # 并覆盖——不再信任客户端 PATCH 上来的 `derived_stats`，避免属性合法但
+    # HP/SAN 被客户端乱填过关。
+    character.derived_stats = compute_derived_stats(character.attributes or {})
     character.status = "complete"
     player = await db.get(Player, character.player_id)
     if player is not None:
@@ -137,7 +146,6 @@ def compute_character_preview(payload: CharacterPreviewRequest) -> CharacterComp
         attributes=payload.attributes,
         occupation_id=payload.occupation_id,
         skills=payload.skills,
-        credit_rating=payload.credit_rating,
     )
     return CharacterComputeResult(**asdict(result))
 

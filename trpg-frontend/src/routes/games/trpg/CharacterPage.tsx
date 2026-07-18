@@ -200,19 +200,30 @@ export default function CharacterPage() {
   const [preview, setPreview] = useState<CharacterComputeResult | null>(null)
   const [previewError, setPreviewError] = useState('')
 
+  // 请求代次守卫：清 debounce 的 timer 只能取消"还没发出"的下一次调用，取消
+  // 不了已经在飞的那次网络请求——如果旧请求比新请求慢返回，会用过期数据
+  // 覆盖新状态。每次真正发请求前 +1 代，回调里只有当自己仍是最新一代时才
+  // setPreview/setPreviewError。
+  const previewGenRef = useRef(0)
+
   useEffect(() => {
     if (!ruleset) return
     const timer = setTimeout(() => {
+      const gen = ++previewGenRef.current
       previewCharacter({
         attributes: toUpperAttrs(attr),
         occupationId: info.occupationId,
         skills: {},
       })
         .then((result) => {
+          if (gen !== previewGenRef.current) return
           setPreview(result)
           setPreviewError('')
         })
-        .catch((err) => setPreviewError(friendlyErrorMessage(err, '规则计算失败')))
+        .catch((err) => {
+          if (gen !== previewGenRef.current) return
+          setPreviewError(friendlyErrorMessage(err, '规则计算失败'))
+        })
     }, 400)
     return () => clearTimeout(timer)
   }, [ruleset, attr, info.occupationId])

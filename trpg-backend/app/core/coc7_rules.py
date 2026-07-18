@@ -24,6 +24,10 @@ from app.dto.game import OccupationSpec
 
 SKILL_CAP = 99
 
+COC7_ATTRIBUTE_KEYS = {"STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU"}
+ATTRIBUTE_MIN = 1
+ATTRIBUTE_MAX = 99
+
 
 @dataclass(frozen=True, slots=True)
 class ValidationIssue:
@@ -89,9 +93,9 @@ def compute_derived_stats(attributes: dict[str, int]) -> dict[str, int | str]:
     db_build = _damage_bonus_and_build(str_, siz)
 
     if str_ < siz and dex < siz:
-        move = 9
-    elif str_ > siz and dex > siz:
         move = 7
+    elif str_ > siz and dex > siz:
+        move = 9
     else:
         move = 8
 
@@ -161,11 +165,57 @@ def find_occupation_by_name(name: str | None) -> tuple[OccupationSpec | None, bo
     return match, match is None
 
 
+def _validate_attributes(attributes: dict[str, int]) -> list[ValidationIssue]:
+    """属性必须正好是 8 个 COC7 键、每项都是 [1, 99] 内的 int，不然客户端能
+    传 `INT=999` 之类的脏数据把后面的技能点预算/衍生值撑爆（PR #85 review #1）。
+    结构性问题（缺键/多键）报一条汇总；结构没问题时再逐项查范围。"""
+    issues: list[ValidationIssue] = []
+    actual_keys = set(attributes.keys())
+    missing = COC7_ATTRIBUTE_KEYS - actual_keys
+    extra = actual_keys - COC7_ATTRIBUTE_KEYS
+    if missing or extra:
+        parts = []
+        if missing:
+            parts.append(f"缺少 {', '.join(sorted(missing))}")
+        if extra:
+            parts.append(f"多余 {', '.join(sorted(extra))}")
+        issues.append(
+            ValidationIssue(
+                code="INVALID_ATTRIBUTES",
+                field="attributes",
+                message=f"属性字段不正确：{'；'.join(parts)}",
+            )
+        )
+        return issues
+
+    for key in sorted(COC7_ATTRIBUTE_KEYS):
+        value = attributes[key]
+        if not isinstance(value, int) or isinstance(value, bool):
+            issues.append(
+                ValidationIssue(
+                    code="INVALID_ATTRIBUTES",
+                    field=f"attributes.{key}",
+                    message=f"{key} 必须是整数",
+                )
+            )
+        elif not (ATTRIBUTE_MIN <= value <= ATTRIBUTE_MAX):
+            issues.append(
+                ValidationIssue(
+                    code="INVALID_ATTRIBUTES",
+                    field=f"attributes.{key}",
+                    message=(
+                        f"{key} 的值 {value} 不在合法范围 "
+                        f"[{ATTRIBUTE_MIN}, {ATTRIBUTE_MAX}] 内"
+                    ),
+                )
+            )
+    return issues
+
+
 def _compute(
     attributes: dict[str, int],
     occupation: OccupationSpec | None,
     skills: dict[str, int],
-    credit_rating: int | None,
     *,
     occupation_not_found: bool,
 ) -> ComputeResult:
@@ -175,6 +225,19 @@ def _compute(
             ValidationIssue(
                 code="OCCUPATION_NOT_FOUND", field="occupation", message="未找到匹配的职业"
             )
+        )
+
+    attribute_issues = _validate_attributes(attributes)
+    if attribute_issues:
+        issues.extend(attribute_issues)
+        # 属性本身不合法，后面的衍生值/技能点预算算出来也是垃圾数据，直接
+        # 返回空结果 + 校验报告，不再往下算。
+        return ComputeResult(
+            derived_stats={},
+            occupation_skill_points=SkillPointsBudget(budget=0, spent=0, remaining=0),
+            interest_skill_points=SkillPointsBudget(budget=0, spent=0, remaining=0),
+            skill_view=[],
+            validation=issues,
         )
 
     derived_stats = compute_derived_stats(attributes)
@@ -191,6 +254,7 @@ def _compute(
 
     occupation_spent = 0
     interest_spent = 0
+    credit_spent = 0
     skill_view: list[SkillView] = []
 
     # 遍历技能表里的全部技能（不只是草稿里提到的那些），这样 `compute_preview`
@@ -200,32 +264,41 @@ def _compute(
         base = evaluate_skill_base(spec.base, attributes)
         current = skills.get(spec.id, base)
         allocated = current - base
+        is_credit = spec.id == "credit-rating"
 
-        if current < base:
-            issues.append(
-                ValidationIssue(
-                    code="SKILL_BELOW_BASE",
-                    field=f"skills.{spec.id}",
-                    message=f"{spec.name} 的值 {current} 不能低于基础值 {base}",
+        # 信用评级是特殊技能：用职业信用区间校验（见下方 CREDIT_OUT_OF_RANGE），
+        # 不套常规的「不能低于基础值」「不能超过 99」这两条。
+        if not is_credit:
+            if current < base:
+                issues.append(
+                    ValidationIssue(
+                        code="SKILL_BELOW_BASE",
+                        field=f"skills.{spec.id}",
+                        message=f"{spec.name} 的值 {current} 不能低于基础值 {base}",
+                    )
                 )
-            )
-        if current > SKILL_CAP:
-            issues.append(
-                ValidationIssue(
-                    code="SKILL_ABOVE_CAP",
-                    field=f"skills.{spec.id}",
-                    message=f"{spec.name} 的值 {current} 超过上限 {SKILL_CAP}",
+            if current > SKILL_CAP:
+                issues.append(
+                    ValidationIssue(
+                        code="SKILL_ABOVE_CAP",
+                        field=f"skills.{spec.id}",
+                        message=f"{spec.name} 的值 {current} 超过上限 {SKILL_CAP}",
+                    )
                 )
-            )
 
         effective_allocated = max(allocated, 0)
-        if spec.id in occupation_skill_ids:
+        if is_credit:
+            # 信用评级的加点可以用职业池或兴趣池里的任意点数（计入 total_spent
+            # 竞争总预算），不单独占用某一个池子的预算。
+            credit_spent += effective_allocated
+        elif spec.id in occupation_skill_ids:
             occupation_spent += effective_allocated
         else:
             interest_spent += effective_allocated
 
+        cap = occupation.credit_max if is_credit and occupation is not None else SKILL_CAP
         skill_view.append(
-            SkillView(id=spec.id, base=base, allocated=allocated, current=current, cap=SKILL_CAP)
+            SkillView(id=spec.id, base=base, allocated=allocated, current=current, cap=cap)
         )
 
     for skill_id in skills:
@@ -247,7 +320,7 @@ def _compute(
             )
         )
 
-    total_spent = occupation_spent + interest_spent
+    total_spent = occupation_spent + interest_spent + credit_spent
     total_budget = occupation_budget + interest_budget
     if total_spent > total_budget:
         issues.append(
@@ -259,17 +332,18 @@ def _compute(
             )
         )
 
-    if (
-        credit_rating is not None
-        and occupation is not None
-        and not (occupation.credit_min <= credit_rating <= occupation.credit_max)
+    # 信用评级必填 + 范围校验：职业已选时才能校验（没有区间可比）；信用值为 0
+    # 或低于下限也会被这条挡住，等价于「必须填」。
+    credit_value = skills.get("credit-rating", 0)
+    if occupation is not None and not (
+        occupation.credit_min <= credit_value <= occupation.credit_max
     ):
         issues.append(
             ValidationIssue(
                 code="CREDIT_OUT_OF_RANGE",
-                field="creditRating",
+                field="skills.credit-rating",
                 message=(
-                    f"信用评级 {credit_rating} 不在职业 {occupation.name} 的区间 "
+                    f"信用评级 {credit_value} 不在职业 {occupation.name} 的区间 "
                     f"[{occupation.credit_min}, {occupation.credit_max}] 内"
                 ),
             )
@@ -296,21 +370,17 @@ def compute_preview(
     attributes: dict[str, int],
     occupation_id: int | None,
     skills: dict[str, int],
-    credit_rating: int | None = None,
 ) -> ComputeResult:
     """`POST /systems/{systemId}/character/preview` 的计算核心：职业按 id 查。"""
     occupation, not_found = find_occupation_by_id(occupation_id)
-    return _compute(attributes, occupation, skills, credit_rating, occupation_not_found=not_found)
+    return _compute(attributes, occupation, skills, occupation_not_found=not_found)
 
 
 def validate_character(
     attributes: dict[str, int],
     occupation_name: str | None,
     skills: dict[str, int],
-    credit_rating: int | None = None,
 ) -> list[ValidationIssue]:
     """`complete_character` 的校验核心：角色卡存的是职业名字符串，按名字查。"""
     occupation, not_found = find_occupation_by_name(occupation_name)
-    return _compute(
-        attributes, occupation, skills, credit_rating, occupation_not_found=not_found
-    ).validation
+    return _compute(attributes, occupation, skills, occupation_not_found=not_found).validation
