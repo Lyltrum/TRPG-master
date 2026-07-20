@@ -24,12 +24,36 @@ export interface ActionSubmitPayload {
 }
 
 /**
+ * 点数购买法的约束（issue #96）。
+ *
+ * 这些数字此前只存在于前端代码里、后端既不校验也不暴露，导致 ①任何 SDK
+ * 使用者都能提交 UI 永远不允许的角色卡 ②重写前端时必须把规则再实现一遍。
+ * 放进 ruleset 是为了「一份定义、两方消费」：后端拿它裁决，客户端拿它渲染
+ * 「还剩多少点」「这项最多加到多少」。
+ *
+ * 只约束 `point_buy=True` 的属性；幸运不在其列。
+ */
+export interface AttributePointBuyRules {
+  budget: number;
+  minValue: number;
+  maxValue: number;
+  defaultValue: number;
+}
+
+/**
  * 一项基础属性：键名、显示名、COC7 生成公式。
+ *
+ * `point_buy` 表示这一项是否参与点数购买法的分配。COC7 里幸运只能掷
+ * （`3d6*5`）、不能用属性点买，所以它是 `False`——客户端据此决定哪些属性
+ * 渲染成可加点、哪些只读展示，不需要自己维护一份"哪 8 项能加点"的名单
+ * （issue #96：这份名单此前在前端硬编码了三处，加幸运时漏改一处导致
+ * 角色卡看不到幸运值）。
  */
 export interface AttributeSpec {
   key: string;
   label: string;
   generation: string;
+  pointBuy?: boolean;
 }
 
 /**
@@ -74,6 +98,37 @@ export interface CharacterPreviewRequest {
   skills?: {
     [k: string]: number;
   };
+}
+
+/**
+ * GET /api/v1/rooms/{roomId}/characters/{characterId} 返回（issue #96）。
+ *
+ * 补这个端点是为了让**后端成为角色卡的唯一事实来源**。此前只有
+ * 创建/保存/完成/掷属性四个写操作、没有任何读接口，前端因此只能把角色卡
+ * 存进 localStorage 当权威源——而那份副本的结构会随后端 schema 演进而过期
+ * （PR #88 加幸运后，旧的 8 键角色卡就再也编辑不了了）。
+ *
+ * `generation_method` 一并返回：客户端要据此知道这张卡该按点数购买法还是
+ * 掷骰法来渲染与校验。
+ */
+export interface CharacterRead {
+  id: string;
+  status: string;
+  generationMethod: string;
+  name?: string | null;
+  attributes?: {
+    [k: string]: number;
+  };
+  derivedStats?: {
+    [k: string]: number | string;
+  };
+  skills?: {
+    [k: string]: number;
+  };
+  equipment?: string[];
+  occupation?: string | null;
+  background?: string;
+  notes?: string;
 }
 
 /**
@@ -543,6 +598,7 @@ export interface RoomSummaryRead {
  */
 export interface RulesetRead {
   attributes: AttributeSpec[];
+  attributePointBuy?: AttributePointBuyRules | null;
   skills: SkillSpec[];
   occupations: OccupationSpec[];
 }
