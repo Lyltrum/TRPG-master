@@ -127,6 +127,14 @@ class Character(Base):
     )
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
 
+    # 属性是怎么生成的："pointbuy"（点数购买法）或 "roll"（服务端权威掷骰）。
+    #
+    # 必须记下来，因为两种方法的合法判据完全不同（issue #96 决策 1）：点数购买法
+    # 要校验「总点数不超预算」，而掷骰法本来就经常超——5 项 3d6*5 + 3 项
+    # (2d6+6)*5，8 项总和均值约 457、理论范围 195–720。不区分方法就无条件校验
+    # 预算的话，会把合法掷出来的角色卡判成非法，等于废掉 roll-attributes 端点。
+    generation_method: Mapped[str] = mapped_column(String(20), nullable=False, default="pointbuy")
+
     # 建卡三条路径的来源（都可空，互斥但不做数据库层面强制）：
     # ① based_on_pregen_id：套用模组作者预设角色；
     # ② based_on_template_id：复用玩家自己的常用卡（issue 决策 5，本期不实现）；

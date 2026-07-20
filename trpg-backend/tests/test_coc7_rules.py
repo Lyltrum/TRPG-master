@@ -281,3 +281,47 @@ def test_no_occupation_selected_all_budget_is_interest_only() -> None:
     assert result.occupation_skill_points == SkillPointsBudget(budget=0, spent=0, remaining=0)
     assert result.interest_skill_points == SkillPointsBudget(budget=100, spent=0, remaining=100)
     assert result.validation == []
+
+
+# ── 属性点预算：必须区分生成方法（issue #96 决策 1）────────────────────
+
+
+def test_point_buy_over_budget_is_rejected() -> None:
+    """点数购买法：8 项可购买属性的总和超过预算就拒。"""
+    attrs = {**ATTRS, "STR": 90, "CON": 90, "POW": 90, "DEX": 90, "APP": 90}
+    # 90*5 + 50*3 = 600 > 480
+    issues = validate_character(attrs, ACCOUNTANT_NAME, {}, generation_method="pointbuy")
+    assert "ATTRIBUTE_POINTS_EXCEEDED" in [issue.code for issue in issues]
+
+
+def test_rolled_attributes_over_point_buy_budget_are_allowed() -> None:
+    """🔴 掷骰法不受点数购买预算约束。
+
+    这条和上一条是一对：掷骰法 8 项总和均值约 457、理论范围 195–720，本来就
+    经常超过 480。如果不区分生成方法、无条件拿预算去卡，合法掷出来的角色卡
+    会被判成非法，等于废掉 roll-attributes 端点。
+    """
+    attrs = {**ATTRS, "STR": 90, "CON": 90, "POW": 90, "DEX": 90, "APP": 90}
+    issues = validate_character(attrs, ACCOUNTANT_NAME, {}, generation_method="roll")
+    assert "ATTRIBUTE_POINTS_EXCEEDED" not in [issue.code for issue in issues]
+
+
+def test_luck_is_excluded_from_the_attribute_point_budget() -> None:
+    """幸运不占属性点预算：把它拉满也不该让总预算超支。"""
+    attrs = {**ATTRS, "LUCK": 99}
+    issues = validate_character(attrs, ACCOUNTANT_NAME, {}, generation_method="pointbuy")
+    assert "ATTRIBUTE_POINTS_EXCEEDED" not in [issue.code for issue in issues]
+
+
+def test_point_buy_attribute_below_min_is_rejected() -> None:
+    """点数购买法下单项属性有 [10, 90] 区间，低于下限要拒——这个边界此前
+    只有前端在管，后端放行到 1。"""
+    issues = validate_character({**ATTRS, "STR": 5}, ACCOUNTANT_NAME, {}, "pointbuy")
+    assert "INVALID_ATTRIBUTES" in [issue.code for issue in issues]
+
+
+def test_rolled_attribute_below_point_buy_min_is_allowed() -> None:
+    """掷骰法不套 [10, 90]：3d6*5 最低能掷出 15，但兜底区间放到 [1, 99]，
+    不该拿点数购买法的下限去卡骰子结果。"""
+    issues = validate_character({**ATTRS, "STR": 5}, ACCOUNTANT_NAME, {}, "roll")
+    assert "INVALID_ATTRIBUTES" not in [issue.code for issue in issues]

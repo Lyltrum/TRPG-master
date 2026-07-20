@@ -12,6 +12,7 @@ from dataclasses import asdict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.coc7_rules import (
+    GENERATION_ROLL,
     ValidationIssue,
     compute_derived_stats,
     compute_preview,
@@ -22,6 +23,7 @@ from app.dto.character import (
     CharacterComputeResult,
     CharacterDraftResult,
     CharacterPreviewRequest,
+    CharacterRead,
     CharacterTemplateCreateBody,
     CharacterTemplateRead,
     CharacterUpdateBody,
@@ -123,6 +125,7 @@ async def complete_character(
         attributes=character.attributes or {},
         occupation_name=character.occupation,
         skills=character.skills or {},
+        generation_method=character.generation_method,
     )
     if issues:
         raise CharacterInvalidError(issues)
@@ -136,6 +139,31 @@ async def complete_character(
     if player is not None:
         player.has_character = True
     await db.commit()
+
+
+async def get_character(
+    db: AsyncSession, room_id: str, character_id: str, reconnect_token: str | None
+) -> CharacterRead:
+    """GET /rooms/{roomId}/characters/{characterId} —— 读回自己的角色卡
+    （issue #96）。
+
+    鉴权复用 `_get_own_character`：只能读自己那张，不能拿别人的角色卡——
+    角色卡里有背景故事、装备这些属于该玩家的信息，房间内其他人不该直接拉到。
+    """
+    character = await _get_own_character(db, room_id, character_id, reconnect_token)
+    return CharacterRead(
+        id=character.id,
+        status=character.status,
+        generation_method=character.generation_method,
+        name=character.name,
+        attributes=character.attributes or {},
+        derived_stats=character.derived_stats or {},
+        skills=character.skills or {},
+        equipment=list(character.equipment or []),
+        occupation=character.occupation,
+        background=character.background or "",
+        notes=character.notes or "",
+    )
 
 
 def compute_character_preview(payload: CharacterPreviewRequest) -> CharacterComputeResult:
@@ -192,6 +220,9 @@ async def roll_attributes(
 
     character.attributes = attributes
     character.derived_stats = derived_stats
+    # 标记这张卡的属性是掷出来的：complete 时不能拿点数购买法的总预算去卡它
+    # （8 项总和均值约 457、范围 195–720，经常超 480）。见 issue #96 决策 1。
+    character.generation_method = GENERATION_ROLL
     await db.commit()
     return RollAttributesResult(attributes=attributes, derived_stats=derived_stats)
 

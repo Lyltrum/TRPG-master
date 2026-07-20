@@ -150,3 +150,82 @@ async def test_complete_character_rejects_invalid_card(client: AsyncClient) -> N
     assert body["error"]["code"] == "CHARACTER_INVALID"
     codes = [issue["code"] for issue in body["error"]["details"]]
     assert "OCCUPATION_POINTS_EXCEEDED" in codes
+
+
+# ── 角色卡读回：后端是唯一事实来源（issue #96）─────────────────────────
+
+
+async def test_get_character_reads_back_saved_card(client: AsyncClient) -> None:
+    """保存后能从后端把角色卡读回来。
+
+    补这个端点是为了让客户端不必再把角色卡存进 localStorage 当权威源——
+    那份本地副本的结构会随后端 schema 演进而过期（PR #88 加幸运后，本地存的
+    8 键旧卡就再也编辑不了了）。
+    """
+    room = await create_room(client)
+    draft = await client.post(
+        f"{ROOMS_BASE}/{room['roomId']}/characters", headers=auth(room["reconnectToken"])
+    )
+    character_id = draft.json()["data"]["characterId"]
+    await client.patch(
+        f"{ROOMS_BASE}/{room['roomId']}/characters/{character_id}",
+        json=BUILT_CHARACTER,
+        headers=auth(room["reconnectToken"]),
+    )
+
+    response = await client.get(
+        f"{ROOMS_BASE}/{room['roomId']}/characters/{character_id}",
+        headers=auth(room["reconnectToken"]),
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["id"] == character_id
+    assert data["name"] == BUILT_CHARACTER["name"]
+    assert data["attributes"] == BUILT_CHARACTER["attributes"]
+    assert data["occupation"] == BUILT_CHARACTER["occupation"]
+    # 默认是点数购买法——迁移前建的卡和前端建卡向导走的都是这条路径
+    assert data["generationMethod"] == "pointbuy"
+
+
+async def test_roll_attributes_marks_card_as_rolled(client: AsyncClient) -> None:
+    """服务端权威掷骰后，这张卡要被标记成 roll。
+
+    complete 时据此跳过点数购买法的总预算校验——掷骰结果 8 项总和均值约 457、
+    范围 195–720，拿 480 的预算去卡它会把合法的卡判成非法。
+    """
+    room = await create_room(client)
+    draft = await client.post(
+        f"{ROOMS_BASE}/{room['roomId']}/characters", headers=auth(room["reconnectToken"])
+    )
+    character_id = draft.json()["data"]["characterId"]
+
+    await client.post(
+        f"{ROOMS_BASE}/{room['roomId']}/characters/{character_id}/roll-attributes",
+        headers=auth(room["reconnectToken"]),
+    )
+
+    read_back = await client.get(
+        f"{ROOMS_BASE}/{room['roomId']}/characters/{character_id}",
+        headers=auth(room["reconnectToken"]),
+    )
+    assert read_back.json()["data"]["generationMethod"] == "roll"
+
+
+async def test_cannot_read_another_players_character(client: AsyncClient) -> None:
+    """角色卡里有背景故事/装备这类属于该玩家的信息，别人不能直接拉。"""
+    room = await create_room(client)
+    joined = (
+        await client.post(f"{ROOMS_BASE}/{room['roomCode']}/join", json={"nickname": "玩家"})
+    ).json()["data"]
+    draft = await client.post(
+        f"{ROOMS_BASE}/{room['roomId']}/characters", headers=auth(room["reconnectToken"])
+    )
+    character_id = draft.json()["data"]["characterId"]
+
+    response = await client.get(
+        f"{ROOMS_BASE}/{room['roomId']}/characters/{character_id}",
+        headers=auth(joined["reconnectToken"]),
+    )
+
+    assert response.status_code == 403
