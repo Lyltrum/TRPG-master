@@ -354,7 +354,11 @@ COC7_SKILLS: list[SkillSpec] = [
     ),
     # issue #84 S2：S1 移植时发现工程师/艺术家两个职业引用了这 3 个不存在的
     # 技能 id（悬空引用），补上缺失的技能定义。
-    SkillSpec(id="navigate", name="导航", name_en="Navigate", base=10, category="perception"),
+    # issue #114：这里原本还有一条 `navigate`「导航」，是 S2 补悬空引用时加的——
+    # 但 `navigation`（同名、同基础值 10）当时已经存在于 knowledge 分类里，那次
+    # 没查重，把「引用了不存在的 id」修成了「同一个技能有两个 id」。留着的后果是
+    # 任何提到导航的职业都要在两个 id 里二选一，口径必然飘。已删除，引用改指
+    # `navigation`。
     SkillSpec(
         id="carpentry",
         name="艺术与手艺（木工）",
@@ -369,6 +373,42 @@ COC7_SKILLS: list[SkillSpec] = [
         base=5,
         category="technical",
     ),
+    # issue #114：扩充职业目录到 229 项时发现的目录缺口。这 8 项都是规则书里
+    # 真实存在、且被多个职业当作本职技能引用的技能，此前整个技能表里没有——
+    # 移植前端那 76 条时就漏了（前端只覆盖了 30 个职业用得到的那些）。
+    #
+    # 缺了它们的后果不只是"少几项技能"：比如「游民」的本职技能原文是「锁匠**或**
+    # 妙手」，妙手没有 id，这个二选一槽就退化成只有一个候选，等于把玩家的选择
+    # 悄悄拿掉了。
+    #
+    # 基础值取自规则表 `附表` sheet 里那串骰娘导入宏（`会计5人类学1估价5…`），
+    # 不是凭印象填的；用同一串里的 `攀爬20`/`会计5` 与目录现有值交叉验证过。
+    SkillSpec(
+        id="sleight-of-hand",
+        name="妙手",
+        name_en="Sleight of Hand",
+        base=10,
+        category="technical",
+    ),
+    SkillSpec(
+        id="animal-handling",
+        name="动物驯养",
+        name_en="Animal Handling",
+        base=5,
+        category="technical",
+    ),
+    SkillSpec(
+        id="psychoanalysis",
+        name="精神分析",
+        name_en="Psychoanalysis",
+        base=1,
+        category="knowledge",
+    ),
+    SkillSpec(id="diving", name="潜水", name_en="Diving", base=1, category="technical"),
+    SkillSpec(id="hypnosis", name="催眠", name_en="Hypnosis", base=1, category="knowledge"),
+    SkillSpec(id="artillery", name="炮术", name_en="Artillery", base=1, category="combat"),
+    SkillSpec(id="demolitions", name="爆破", name_en="Demolitions", base=1, category="technical"),
+    SkillSpec(id="read-lips", name="读唇", name_en="Read Lips", base=1, category="perception"),
 ]
 
 COC7_OCCUPATIONS: list[OccupationSpec] = [
@@ -510,7 +550,7 @@ COC7_OCCUPATIONS: list[OccupationSpec] = [
             "mechanical-repair",
             "heavy-machinery",
             "library-use",
-            "navigate",
+            "navigation",
             "science-engineering",
             "science-physics",
             "carpentry",

@@ -55,10 +55,13 @@ async def test_get_ruleset_returns_full_coc7_data(client: AsyncClient) -> None:
         "defaultValue": 50,
     }
 
-    # 80 项技能（前端 ALL_SKILLS 原有 76 条 + issue #84 S2 补齐的 3 条悬空引用
-    # navigate/carpentry/illusion + PR #85 review 补的信用评级 credit-rating），
-    # 固定值和公式值都要能原样带过来
-    assert len(data["skills"]) == 80
+    # 87 项技能：前端 ALL_SKILLS 原有 76 条 + issue #84 S2 补齐的 3 条悬空引用
+    # navigate/carpentry/illusion + PR #85 review 补的信用评级 credit-rating
+    # + issue #114 删掉 1 条重复的「导航」（navigate 与既有的 navigation 同名同
+    # 基础值，S2 那次没查重，把悬空引用修成了重复定义）并补齐 8 条规则书里有、
+    # 目录里缺的技能（妙手/动物驯养/精神分析/潜水/催眠/炮术/爆破/读唇）。
+    # 固定值和公式值都要能原样带过来。
+    assert len(data["skills"]) == 87
     skills_by_id = {s["id"]: s for s in data["skills"]}
     assert skills_by_id["spot-hidden"]["base"] == 25
     assert skills_by_id["dodge"]["base"] == "DEX/2"

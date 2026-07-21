@@ -75,11 +75,12 @@ NAME_ALIASES = {
 
 
 def _match_key(name: str) -> str:
-    """两个 sheet 匹配职业名时用的键：去掉所有空白。
+    """按名字匹配时用的键：去掉所有空白。
 
-    只规范化空白——这属于搬运，不属于解释（`赛车手/ 赛艇手` 与 `赛车手/赛艇手`
-    显然是同一个职业）。**不做模糊匹配**：名称真正不同的条目要留给下一步裁定，
-    静默挑一个"最像的"会把需要人看的信号藏起来。
+    只在序号对不上时兜底用（见 `extract`）。只规范化空白——这属于搬运不属于
+    解释（`赛车手/ 赛艇手` 与 `赛车手/赛艇手` 显然是同一个职业）。**不做模糊
+    匹配**：名称真正不同的条目要留给下一步裁定，静默挑一个"最像的"会把需要人
+    看的信号藏起来。
     """
     return "".join(name.split())
 
@@ -92,7 +93,19 @@ def extract(xlsx_path: Path) -> list[dict]:
     skill_labels = [r[0] for r in matrix_rows]
     matrix_names = list(matrix_rows[1])
 
-    matrix_index = {_match_key(n): i for i, n in enumerate(matrix_names) if isinstance(n, str)}
+    # 🔴 按**序号**对齐两个 sheet，不按名字。
+    #
+    # `职业列表` 里有 6 对同名职业（艺术家/工匠/艺人/律师/私家侦探/科学家 各两条，
+    # 是同名不同版本的设定），矩阵里也相应有两列（如 `私家侦探` 在第 92 和 220 列）。
+    # 第一版用 {名字: 列号} 的字典匹配，同名后写覆盖先写，每一对里都有一条拿到了
+    # 另一条的矩阵数据——而且**悄无声息**。
+    #
+    # 矩阵第 0 行就是序号，两个 sheet 的序号是同一套编号，按它对齐是精确的。
+    # 名字匹配只在序号对不上时兜底（`NAME_ALIASES` 那三条属于这种）。
+    matrix_by_index = {
+        matrix_rows[0][i]: i for i in range(len(matrix_names)) if isinstance(matrix_rows[0][i], int)
+    }
+    matrix_by_name = {_match_key(n): i for i, n in enumerate(matrix_names) if isinstance(n, str)}
 
     occupations = []
     for row in prose_rows[1:]:
@@ -113,9 +126,10 @@ def extract(xlsx_path: Path) -> list[dict]:
             "matrix_skills": {},
         }
 
-        lookup = _match_key(NAME_ALIASES.get(name, name))
-        if lookup in matrix_index:
-            col = matrix_index[lookup]
+        col = matrix_by_index.get(index)
+        if col is None:
+            col = matrix_by_name.get(_match_key(NAME_ALIASES.get(name, name)))
+        if col is not None:
             entry["matrix_column"] = col
             for row_no, symbol in SLOT_ROWS.items():
                 value = matrix_rows[row_no][col] if col < len(matrix_rows[row_no]) else None

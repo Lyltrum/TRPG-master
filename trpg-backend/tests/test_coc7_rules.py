@@ -116,7 +116,8 @@ def test_valid_card_has_empty_validation_report() -> None:
     assert result.occupation_skill_points == SkillPointsBudget(budget=200, spent=230, remaining=-30)
     # 兴趣技能 50（dodge/occult 各分配 25）+ 信用超出下限部分 20 = 70
     assert result.interest_skill_points == SkillPointsBudget(budget=100, spent=70, remaining=30)
-    assert len(result.skill_view) == 76 + 3 + 1  # +3 悬空引用补齐 +1 信用评级
+    # 76 前端原有 +3 悬空引用补齐 +1 信用评级 −1 重复的导航 +8 目录缺口（issue #114）
+    assert len(result.skill_view) == 76 + 3 + 1 - 1 + 8
 
     # complete_character 用的是按名字查职业的版本，结果应该一致
     assert validate_character(RULESET, ATTRS, ACCOUNTANT_NAME, skills) == []
