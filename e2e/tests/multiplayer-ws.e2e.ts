@@ -79,25 +79,27 @@ test('WS 生命周期：join → session.bound，全员建卡后房主可以 gam
   await buildCharacter(room.host.sdk, room.roomId, room.reconnectToken)
   await buildCharacter(guest.sdk, room.roomId, joined.reconnectToken)
 
+  // ⚠️ `try` 必须从 **connect() 之后的第一行**就开始，把 waitForOpen 和绑定
+  // 阶段也罩进去。这两步同样会失败/超时，而句柄那时已经建立了——漏在 try 外面
+  // 的话 disconnect() 不会执行，WS 句柄会让 node 一直不退出，表现成"测试跑完了
+  // 但命令挂住"，最后只能等 job 超时。
   const hostSocket = room.host.sdk.roomSocket.connect(room.roomId, room.host.token)
-  await room.host.sdk.roomSocket.waitForOpen(hostSocket)
-
   try {
-  const bound = waitForEvent(room.host.sdk, (e) => e.type === 'session.bound')
-  room.host.sdk.roomSocket.joinRoom(room.hostPlayerId, {
-    reconnectToken: room.reconnectToken,
-  })
-  const boundEvent = await bound
-  assert.equal(boundEvent.type, 'session.bound')
+    await room.host.sdk.roomSocket.waitForOpen(hostSocket)
 
-  // 房主开始游戏 → 应该收到开场旁白
-  const narration = waitForEvent(room.host.sdk, (e) => e.type === 'narration.push')
-  room.host.sdk.roomSocket.startGame(room.hostPlayerId)
-  const narrationEvent = await narration
-  assert.equal(narrationEvent.type, 'narration.push')
+    const bound = waitForEvent(room.host.sdk, (e) => e.type === 'session.bound')
+    room.host.sdk.roomSocket.joinRoom(room.hostPlayerId, {
+      reconnectToken: room.reconnectToken,
+    })
+    const boundEvent = await bound
+    assert.equal(boundEvent.type, 'session.bound')
+
+    // 房主开始游戏 → 应该收到开场旁白
+    const narration = waitForEvent(room.host.sdk, (e) => e.type === 'narration.push')
+    room.host.sdk.roomSocket.startGame(room.hostPlayerId)
+    const narrationEvent = await narration
+    assert.equal(narrationEvent.type, 'narration.push')
   } finally {
-    // 必须在 finally 里断开：用例失败时如果漏掉，WS 句柄会让 node 进程一直
-    // 不退出，表现成"测试跑完了但命令挂住"。
     room.host.sdk.roomSocket.disconnect()
   }
 })
@@ -110,26 +112,29 @@ test('提交行动会广播给房间里的所有人（不只是发起者）', as
   await buildCharacter(room.host.sdk, room.roomId, room.reconnectToken)
   await buildCharacter(guest.sdk, room.roomId, joined.reconnectToken)
 
+  // 同上：`try` 从第一个 connect() 之后就开始。这条用例有两个句柄，绑定阶段
+  // 失败的机会翻倍，finally 里两个都要断开（访客那个即使还没 connect 成功，
+  // disconnect 也是幂等的空操作）。
   const hostSocket = room.host.sdk.roomSocket.connect(room.roomId, room.host.token)
-  await room.host.sdk.roomSocket.waitForOpen(hostSocket)
-  room.host.sdk.roomSocket.joinRoom(room.hostPlayerId, {
-    reconnectToken: room.reconnectToken,
-  })
-  await waitForEvent(room.host.sdk, (e) => e.type === 'session.bound')
-
-  const guestSocket = guest.sdk.roomSocket.connect(room.roomId, guest.token)
-  await guest.sdk.roomSocket.waitForOpen(guestSocket)
-  guest.sdk.roomSocket.joinRoom(joined.playerId, {
-    reconnectToken: joined.reconnectToken,
-  })
-  await waitForEvent(guest.sdk, (e) => e.type === 'session.bound')
-
-  // 房主提交行动，**访客**这一侧应该收到广播
-  const guestHears = waitForEvent(
-    guest.sdk,
-    (e) => e.type === 'narration.push' && String(e.payload?.text ?? '').includes('推开了门')
-  )
   try {
+    await room.host.sdk.roomSocket.waitForOpen(hostSocket)
+    room.host.sdk.roomSocket.joinRoom(room.hostPlayerId, {
+      reconnectToken: room.reconnectToken,
+    })
+    await waitForEvent(room.host.sdk, (e) => e.type === 'session.bound')
+
+    const guestSocket = guest.sdk.roomSocket.connect(room.roomId, guest.token)
+    await guest.sdk.roomSocket.waitForOpen(guestSocket)
+    guest.sdk.roomSocket.joinRoom(joined.playerId, {
+      reconnectToken: joined.reconnectToken,
+    })
+    await waitForEvent(guest.sdk, (e) => e.type === 'session.bound')
+
+    // 房主提交行动，**访客**这一侧应该收到广播
+    const guestHears = waitForEvent(
+      guest.sdk,
+      (e) => e.type === 'narration.push' && String(e.payload?.text ?? '').includes('推开了门')
+    )
     room.host.sdk.roomSocket.submitAction(room.hostPlayerId, { utterance: '我推开了门' })
     await guestHears
   } finally {
