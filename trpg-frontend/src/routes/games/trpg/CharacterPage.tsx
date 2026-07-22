@@ -357,11 +357,16 @@ export default function CharacterPage() {
   }, [ruleset, occSkillIds])
 
   // ── 建卡计算预览（issue #84 S2 previewCharacter，路线乙的接缝）──────────
-  // 衍生值/技能点预算/每个技能的 base·cap/校验报告全部来自这里，前端不再
-  // 本地重算 COC7 规则数值。不需要每次点技能 +/- 都调用：base/cap/预算只
-  // 跟"属性"和"职业"有关，跟具体分配了多少点无关，所以只在属性/职业变化
-  // 时（防抖）请求一次；技能分配阶段的"剩余点数"允许前端本地做
-  // 剩余=预算-已分配 这种平凡算术，不需要为每次点击都发一次请求。
+  // 衍生值/技能点预算/每个技能的 base·cap/校验报告 + **两条 bar 的"已花"**全部
+  // 来自这里，前端不再本地重算 COC7 规则数值。
+  //
+  // issue #114 之前这里刻意只在属性/职业变化时请求、不带 skills：那时"已花"是
+  // 「occSkillIds 里的算职业点、其余算兴趣点」这种平凡算术，前端本地算即可。但
+  // 职业技能 = 固定 + 自选槽后，某个技能的点数算职业还是兴趣，取决于后端的全局
+  // 最优占槽（_assign_choice_slots，尤其开放槽任何技能都可能占），前端无法在不
+  // 复刻规则的前提下算对。所以现在**把当前 skillAlloc 一起发过去、并在它变化时
+  // （防抖）重新预演**，"已花"直接读后端返回的 occupationSkillPoints.spent /
+  // interestSkillPoints.spent。代价是加点后数字有 ~400ms 防抖延迟。
   const [preview, setPreview] = useState<CharacterComputeResult | null>(null)
   const [previewError, setPreviewError] = useState('')
 
@@ -378,7 +383,7 @@ export default function CharacterPage() {
       previewCharacter({
         attributes: attr,
         occupationId: info.occupationId,
-        skills: {},
+        skills: skillAlloc,
       })
         .then((result) => {
           if (gen !== previewGenRef.current) return
@@ -391,7 +396,7 @@ export default function CharacterPage() {
         })
     }, 400)
     return () => clearTimeout(timer)
-  }, [ruleset, attr, info.occupationId])
+  }, [ruleset, attr, info.occupationId, skillAlloc])
 
   const skillComputeMap = useMemo(() => {
     const map = new Map<string, SkillComputeView>()
@@ -429,21 +434,20 @@ export default function CharacterPage() {
     setInterestAlloc(out)
   }, [ruleset, existingCharacter])
 
-  // 信用评级按 COC7 官方裁定分账（跟后端 coc7_rules._compute 的记账口径
-  // 保持一致）：下限（creditMin）那部分点数算职业点负担，超出下限的部分算
-  // 兴趣点负担。两条预算 bar 的"已花"必须把这部分算进去，否则会出现前端
-  // bar 看着没花满、后端却因为信用挤占了额度而拒绝的情况。
-  const occPointsSpent = useMemo(() => {
-    const skillsSpent = occSkillIds.reduce((sum, id) => sum + ((skillAlloc[id] || 0) - (interestAlloc[id] || 0)), 0)
-    return skillsSpent + (selectedOcc ? selectedOcc.creditMin : 0)
-  }, [occSkillIds, skillAlloc, interestAlloc, selectedOcc])
-
-  const interestPointsSpent = useMemo(() => {
-    const skillsSpent = Object.values(interestAlloc).reduce((sum, pts) => sum + pts, 0)
-    const creditValue = skillAlloc['credit-rating'] ?? selectedOcc?.creditMin ?? 0
-    const creditExcess = selectedOcc ? Math.max(0, creditValue - selectedOcc.creditMin) : 0
-    return skillsSpent + creditExcess
-  }, [interestAlloc, skillAlloc, selectedOcc])
+  // 两条预算 bar 的"已花"直接取后端 preview 的权威记账，**不在前端本地重算**。
+  //
+  // issue #114 之前这里是本地按「occSkillIds（仅固定本职技能）算职业点、其余算
+  // 兴趣点」+ 手动补信用分账。但职业技能 = 固定 + 自选槽，占槽的技能（尤其是
+  // 「任意 N 项」的开放槽，任何技能都可能占）该算职业点还是兴趣点，取决于后端
+  // 的全局最优占槽（coc7_rules._assign_choice_slots），前端无法在不复刻规则的
+  // 前提下算对——那正是路线乙 / issue #96 要避免的「前端本地做规则记账」。
+  //
+  // 后端 compute_preview 返回的 spent 已经把固定技能、占槽技能、信用分账全算
+  // 进去了（见 coc7_rules._compute），前端只渲染，不叠加。代价是数字随 preview
+  // 防抖有轻微延迟——但预算总额、技能 base/cap 本来就是 preview 驱动的，这里
+  // 只是让 spent 跟它们同源，不是新增的延迟面。
+  const occPointsSpent = preview?.occupationSkillPoints.spent ?? 0
+  const interestPointsSpent = preview?.interestSkillPoints.spent ?? 0
 
   const derived = useMemo(() => normalizeDerivedStats(preview?.derivedStats), [preview])
 
