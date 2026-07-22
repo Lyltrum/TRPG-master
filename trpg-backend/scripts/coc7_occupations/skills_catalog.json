@@ -49,7 +49,7 @@
   },
   {
     "id": "firearm-rifle",
-    "name": "射击：步枪",
+    "name": "射击：步枪/霰弹枪",
     "base": 25,
     "category": "combat"
   },
@@ -462,12 +462,6 @@
     "category": "language"
   },
   {
-    "id": "navigate",
-    "name": "导航",
-    "base": 10,
-    "category": "perception"
-  },
-  {
     "id": "carpentry",
     "name": "艺术与手艺（木工）",
     "base": 5,
@@ -478,5 +472,83 @@
     "name": "艺术与手艺（魔术）",
     "base": 5,
     "category": "technical"
+  },
+  {
+    "id": "sleight-of-hand",
+    "name": "妙手",
+    "base": 10,
+    "category": "technical"
+  },
+  {
+    "id": "animal-handling",
+    "name": "动物驯养",
+    "base": 5,
+    "category": "technical"
+  },
+  {
+    "id": "psychoanalysis",
+    "name": "精神分析",
+    "base": 1,
+    "category": "knowledge"
+  },
+  {
+    "id": "diving",
+    "name": "潜水",
+    "base": 1,
+    "category": "technical"
+  },
+  {
+    "id": "hypnosis",
+    "name": "催眠",
+    "base": 1,
+    "category": "knowledge"
+  },
+  {
+    "id": "artillery",
+    "name": "炮术",
+    "base": 1,
+    "category": "combat"
+  },
+  {
+    "id": "demolitions",
+    "name": "爆破",
+    "base": 1,
+    "category": "technical"
+  },
+  {
+    "id": "read-lips",
+    "name": "读唇",
+    "base": 1,
+    "category": "perception"
+  },
+  {
+    "id": "fighting-chainsaw",
+    "name": "格斗：链锯",
+    "base": 10,
+    "category": "combat"
+  },
+  {
+    "id": "pilot-balloon",
+    "name": "驾驶：热气球",
+    "base": 1,
+    "category": "technical"
+  },
+  {
+    "id": "lore-1",
+    "name": "学识①",
+    "base": 1,
+    "category": "knowledge"
+  },
+  {
+    "id": "lore-2",
+    "name": "学识②",
+    "base": 1,
+    "category": "knowledge"
+  },
+  {
+    "id": "lore-3",
+    "name": "学识③",
+    "base": 1,
+    "category": "knowledge"
   }
 ]

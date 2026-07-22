@@ -47,6 +47,10 @@ OUTPUT = Path(__file__).parent / "raw_occupations.json"
 
 # `职业列表` sheet 的列位置（0-based）。表头在第 0 行，数据从第 1 行起。
 COL_INDEX, COL_NAME, COL_CREDIT, COL_FORMULA, COL_SKILLS = 0, 1, 3, 4, 6
+# 职业介绍（`OccupationSpec.description` 的来源）和推荐关系人。后者本期不入库，
+# 但一并导出——它是建卡时给玩家写背景的素材，属于同一条数据的一部分，将来要用
+# 时不必再回头改提取器重跑。
+COL_CONTACTS, COL_DESCRIPTION = 10, 12
 
 # `本职技能` sheet 里的自选槽符号行（行号 → 符号），见模块文档的图例。
 SLOT_ROWS = {2: "☆", 3: "⊙", 4: "☯", 5: "※", 6: "任意特长"}
@@ -119,6 +123,8 @@ def extract(xlsx_path: Path) -> list[dict]:
             "credit_raw": row[COL_CREDIT],
             "formula_raw": row[COL_FORMULA],
             "prose_skills": row[COL_SKILLS],
+            "description": row[COL_DESCRIPTION],
+            "contacts": row[COL_CONTACTS],
             # 矩阵里对不上号时留空，而不是猜一个最相近的列——名称对不上本身
             # 就是需要人看的信号，静默匹配会把它藏起来。
             "matrix_column": None,
